@@ -32,12 +32,12 @@ use sp_version::NativeVersion;
 pub use sp_runtime::BuildStorage;
 pub use pallet_timestamp::Call as TimestampCall;
 pub use pallet_balances::Call as BalancesCall;
-pub use sp_runtime::{Permill, Perbill};
+pub use sp_runtime::{Permill, Perbill, traits::Convert};
 pub use frame_support::{
 	construct_runtime, parameter_types, StorageValue,
 	traits::{KeyOwnerProofSystem, Randomness},
 	weights::{
-		Weight, IdentityFee,
+		Weight, IdentityFee, WeightToFeePolynomial, WeightToFeeCoefficients, WeightToFeeCoefficient,
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 		DispatchClass,
 	},
@@ -104,7 +104,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	transaction_version: 1,
 };
 
-pub const MILLISECS_PER_BLOCK: u64 = 6000;
+pub const MILLISECS_PER_BLOCK: u64 = 3000;
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
@@ -124,7 +124,7 @@ pub const CANS: Balance = CENTS;
 pub const CONTRACTS_DEBUG_OUTPUT: bool = true;
 
 const fn deposit(items: u32, bytes: u32) -> Balance {
-	items as Balance * 15 * CENTS + (bytes as Balance) * 6 * CENTS
+	items as Balance * 15 * MILLICENTS + (bytes as Balance) * 6 * MILLICENTS
 }
 
 /// The version information used to identify this runtime when compiled natively.
@@ -278,16 +278,41 @@ impl pallet_balances::Config for Runtime {
 
 parameter_types! {
 	/// 1 CAN = 1 Megabyte
-	pub const TransactionByteFee: Balance = CANS / (1024 * 1024);
+	pub const TransactionByteFee: Balance = 0;
 	pub const TargetBlockFullness: Perquintill = Perquintill::from_percent(25);
 	pub AdjustmentVariable: Multiplier = Multiplier::saturating_from_rational(3, 100_000);
 	pub MinimumMultiplier: Multiplier = Multiplier::saturating_from_rational(1, 1_000_000_000u128);
 }
 
+pub struct CustomWeightToFee;
+impl Convert<Weight, Balance> for CustomWeightToFee {
+    fn convert(_w: Weight) -> Balance {
+        0
+    }
+}
+
+impl WeightToFeePolynomial for CustomWeightToFee {
+    type Balance = Balance;
+
+    fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
+    	let coefficient = WeightToFeeCoefficient {
+            coeff_integer: 0,
+            coeff_frac: Perbill::zero(),
+            negative: false,
+            degree: 1,
+        };
+
+        let mut coeffs = WeightToFeeCoefficients::new();
+        coeffs.push(coefficient);
+
+        coeffs
+    }
+}
+
 impl pallet_transaction_payment::Config for Runtime {
 	type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
 	type TransactionByteFee = TransactionByteFee;
-	type WeightToFee = IdentityFee<Balance>;
+	type WeightToFee = CustomWeightToFee;
 	type FeeMultiplierUpdate = ();
 }
 
@@ -299,7 +324,7 @@ parameter_types! {
 	pub DepositPerContract: Balance = TombstoneDeposit::get();
 	pub const DepositPerStorageByte: Balance = deposit(0, 1);
 	pub const DepositPerStorageItem: Balance = deposit(1, 0);
-	pub RentFraction: Perbill = Perbill::from_rational(1u32, 30 * DAYS);
+	pub RentFraction: Perbill = Perbill::from_rational(1u32, 10 * 365 * DAYS);
 	pub const SurchargeReward: Balance = 150 * MILLICENTS;
 	pub const SignedClaimHandicap: u32 = 2;
 	// The lazy deletion runs inside on_initialize.
